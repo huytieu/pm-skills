@@ -168,72 +168,73 @@ Query Linear for work tracking data since [LOOKBACK_DATE].
 Brief type: [Daily Brief / Week Start Brief (Monday)]
 If Monday: cover Friday through Sunday.
 
+=== CONTEXT OPTIMIZATION RULES (CRITICAL — reduces token usage by ~70%) ===
+
+**DEFAULT FILTERS — apply to ALL list_issues calls:**
+- ALWAYS exclude issues with state "Done", "Completed", "Canceled", or "Archived" UNLESS they were updated since [LOOKBACK_DATE] (i.e., only show recently-completed wins, not old closed work).
+- ALWAYS set limit: 50 on any list call to prevent overflow.
+- NEVER make redundant queries — if you already fetched issues updated since lookback, do NOT re-fetch the same issues in a separate "completed" query. Filter from the data you already have.
+
+**DATA EXTRACTION — from every API response, extract ONLY these fields per issue:**
+- identifier (e.g., [CUSTOMIZE: PROJ]-123)
+- title
+- state (name only)
+- priority (number + label)
+- assignee (name only)
+- updatedAt
+- project (name only)
+- labels (names only)
+
+Discard everything else (full descriptions, URLs, metadata blobs, nested objects). This is critical — raw Linear responses are 50-100KB each and most of that data is unused.
+
+**QUERY CONSOLIDATION — use minimal API calls:**
+Do NOT make 5+ separate list_issues calls. Instead:
+
 Instructions:
 1. Use ToolSearch to load Linear tools (search "+linear list issues", "+linear list initiatives", "+linear list milestones", "+linear list projects")
 2. Query the following data using Linear MCP tools:
 
-   === ISSUE-LEVEL DATA ===
+   === ISSUE-LEVEL DATA (2-3 calls max) ===
 
-   a) Issues updated since lookback:
-      Use mcp__claude_ai_Linear__list_issues with updatedAt: "[LOOKBACK_DATE]" to get all recently active issues.
+   a) Issues updated since lookback (THE main query — covers most needs):
+      Use mcp__claude_ai_Linear__list_issues with updatedAt: "[LOOKBACK_DATE]", limit: 50.
+      From this ONE response, extract: recently completed issues (wins), issues that moved to In Progress, issues still in Todo, new issues created.
 
-   b) Issues created since lookback:
-      Use mcp__claude_ai_Linear__list_issues with createdAt: "[LOOKBACK_DATE]" to see new work added.
+   b) High-priority/urgent + blocked issues (only if not already captured above):
+      Use mcp__claude_ai_Linear__list_issues with priority: 1 (Urgent), limit: 30.
+      Only query this separately if the main query didn't surface urgent items.
 
-   c) Completed issues since lookback:
-      Use mcp__claude_ai_Linear__list_issues with state: "completed" and updatedAt: "[LOOKBACK_DATE]" — these are wins to celebrate.
+   c) Blocked/stuck issues:
+      Look for issues with state "blocked" or "In Progress" with no updates in >2 days. Use the data from query (a) first — only make a separate query if needed.
 
-   d) High-priority and urgent issues:
-      Use mcp__claude_ai_Linear__list_issues with priority: 1 (Urgent) and priority: 2 (High) to surface anything critical.
+   === CYCLE & SPRINT DATA (1 call) ===
 
-   e) Blocked/stuck issues:
-      Use mcp__claude_ai_Linear__list_issues with state: "blocked" or look for issues with no updates in >2 days despite being "In Progress".
+   d) Current cycle progress:
+      Use mcp__claude_ai_Linear__list_teams to get team IDs, then mcp__claude_ai_Linear__list_cycles with type: "current" for each team. This shows sprint/cycle health.
 
-   === CYCLE & SPRINT DATA ===
+   === INITIATIVE DATA (1-2 calls) ===
 
-   f) Current cycle progress:
-      Use mcp__claude_ai_Linear__list_teams to get team IDs, then mcp__claude_ai_Linear__list_cycles with type: "current" for each team. This shows sprint/cycle health — are we on track?
+   e) All active initiatives:
+      Use mcp__claude_ai_Linear__list_initiatives with includeProjects: true to get initiative names, target dates, health status, progress, and linked projects.
+      Do NOT call get_initiative for each individual initiative — the list call with includeProjects gives enough data.
 
-   === INITIATIVE DATA (for initiative health tracking) ===
+   === PROJECT DATA (SKIP separate call) ===
 
-   g) All active initiatives:
-      Use mcp__claude_ai_Linear__list_initiatives with includeProjects: true to get:
-      - Initiative names, target dates, health status, progress
-      - All projects linked to each initiative
-      - Current initiative owner
+   f) Project data comes from the initiatives query above (includeProjects: true). Do NOT make a separate list_projects call — it returns ~37KB of mostly unused data.
 
-   h) For each initiative, get detailed status:
-      Use mcp__claude_ai_Linear__get_initiative for each initiative ID to get full description, status updates, and health.
+   === MILESTONE DATA (1 call only if needed) ===
 
-   === PROJECT DATA ===
+   g) Only query milestones if an initiative is At Risk or has an approaching target date (≤14 days). Otherwise skip — milestone data is verbose and rarely actionable day-to-day.
 
-   i) Active projects with status:
-      Use mcp__claude_ai_Linear__list_projects (non-archived) to get:
-      - Project name, status, progress %, lead
-      - Which initiative each project belongs to
-      - Start/target dates
+3. For each significant issue, note ONLY:
+   - Issue identifier, title, assignee name, status, priority, project name
+   - Whether it has linked PRs (just note yes/no + PR number, don't include full URLs)
 
-   === MILESTONE DATA ===
-
-   j) Milestones for active projects:
-      Use mcp__claude_ai_Linear__list_milestones for each active project to track:
-      - Milestone name, target date, completion status
-      - Whether milestones are on track or overdue
-
-3. For each significant issue, note:
-   - Issue identifier (e.g., [CUSTOMIZE: PROJ]-123)
-   - Title and description summary
-   - Assignee
-   - Status and priority
-   - Labels/project it belongs to
-   - Any linked PRs or references to GitHub (check attachments and description for PR URLs)
-
-4. Build an INITIATIVE HEALTH MAP:
+4. Build an INITIATIVE HEALTH MAP from the data you already have (do NOT make additional queries):
    For each initiative, compile:
-   - Total issues across all linked projects (completed / in-progress / todo / blocked)
+   - Total issues across linked projects (completed / in-progress / todo / blocked)
    - Projects status breakdown
-   - Milestone status (on track / at risk / overdue)
-   - Key blockers rolling up from project level
+   - Key blockers
    - Days until target date
 
 ANALYSIS REQUIRED:
@@ -246,12 +247,12 @@ F) **Completed Work**: Celebrate — list what got done and by whom.
 G) **Initiative Progress**: For each initiative, report health (on track / at risk / off track) based on:
    - % of issues completed vs. days remaining to target date
    - Number of blocked items
-   - Milestone completion status
    - Whether projects under the initiative are progressing
-H) **Milestone Status**: Flag any milestones that are overdue or at risk of missing their target date.
+H) **Milestone Status**: Only flag milestones that are overdue or at risk. Skip healthy milestones.
 I) **Project Rollup**: For each project, summarize progress % and whether it's contributing to initiative goals.
 
-Return structured data AND insights, including the full initiative health map.
+Return structured data AND insights, including the initiative health map.
+IMPORTANT: Your total output should be under 5KB of text. Summarize, don't dump raw data.
 ```
 
 #### Agent 5: "braindump-reviewer" (subagent_type: general-purpose)
@@ -283,73 +284,60 @@ Return structured list of:
 #### Agent 6: "posthog-analyst" (subagent_type: general-purpose)
 *Only spawn if PostHog MCP is available*
 ```
-Query PostHog for product metrics and user behavior data.
+Query PostHog for HIGH-LEVEL product metrics only.
 Project ID: [CUSTOMIZE: your-posthog-project-id], Dashboard ID: [CUSTOMIZE: your-posthog-dashboard-id].
 Lookback start date: [INSERT LOOKBACK_DATE].
 Today's date: [INSERT TODAY_DATE].
 Brief type: [Daily Brief / Week Start Brief (Monday)]
 
+=== CONTEXT OPTIMIZATION RULES (CRITICAL) ===
+- DO NOT query for errors or error details. Skip list-errors entirely.
+- DO NOT fetch insights-get-all (returns huge payload of all saved insights). Only use the dashboard.
+- DO NOT include raw query results in your output. Summarize into 1-2 lines per metric.
+- Your total output should be under 3KB of text.
+
 Instructions:
 1. Use ToolSearch to load PostHog tools (search "+posthog")
-2. Run the following queries:
+2. Run ONLY these queries:
 
-   === DASHBOARD METRICS ===
+   === DASHBOARD OVERVIEW (1 call) ===
 
-   a) Get the main dashboard overview:
-      Use mcp__posthog__dashboard-get with dashboard_id: [CUSTOMIZE: your-posthog-dashboard-id] to pull the latest KPIs.
+   a) Get the main dashboard:
+      Use mcp__posthog__dashboard-get with dashboard_id: [CUSTOMIZE: your-posthog-dashboard-id].
+      Extract only: visitor count, signup count, core event count, and any trend data shown.
 
-   b) List all saved insights:
-      Use mcp__posthog__insights-get-all to discover available insights and their current values.
+   === KEY METRICS (3 HogQL queries — combine into period comparison) ===
 
-   === KEY METRICS (via HogQL) ===
-
-   c) Visitors since lookback:
+   b) Current period metrics (single combined query):
       Use mcp__posthog__query-run with a HogQL query:
-      SELECT count(DISTINCT person_id) as visitors, count() as pageviews
+      SELECT
+        countIf(DISTINCT person_id, event = '$pageview') as visitors,
+        countIf(event = '$pageview') as pageviews,
+        countIf(DISTINCT person_id, event = 'user_signed_up') as signups,
+        countIf(event = '[CUSTOMIZE: your_core_event]') as core_events,
+        countIf(DISTINCT person_id, event = '[CUSTOMIZE: your_core_event]') as core_event_users
       FROM events
-      WHERE event = '$pageview' AND timestamp >= '[LOOKBACK_DATE]'
+      WHERE timestamp >= '[LOOKBACK_DATE]'
 
-   d) Sign-ups since lookback:
-      Use mcp__posthog__query-run:
-      SELECT count(DISTINCT person_id) as signups
-      FROM events
-      WHERE event = 'user_signed_up' AND timestamp >= '[LOOKBACK_DATE]'
+   c) Previous period metrics (for % change calculation):
+      Run the same query for the PREVIOUS equivalent period.
+      If daily: day before lookback. If Monday (Fri-Sun): previous Fri-Sun.
 
-   e) Core value event since lookback:
-      Use mcp__posthog__query-run:
-      SELECT count() as completions, count(DISTINCT person_id) as unique_users
-      FROM events
-      WHERE event = '[CUSTOMIZE: your_core_event]' AND timestamp >= '[LOOKBACK_DATE]'
-
-   f) Feature usage breakdown (top features used):
+   d) Top features (lightweight):
       Use mcp__posthog__query-run:
       SELECT event, count() as count, count(DISTINCT person_id) as unique_users
       FROM events
       WHERE timestamp >= '[LOOKBACK_DATE]' AND event NOT LIKE '$%'
-      GROUP BY event ORDER BY count DESC LIMIT 15
+      GROUP BY event ORDER BY count DESC LIMIT 10
 
-   === ERRORS & ISSUES ===
+ANALYSIS — Return ONLY high-level insights (no raw data dumps):
 
-   g) Recent errors:
-      Use mcp__posthog__list-errors to surface any new or spiking errors since lookback.
+A) **Metric Summary**: 1 line each for visitors, sign-ups, core events with ↑↓→ trend and % change.
+B) **Anomalies**: Only flag metrics with >20% change. If none, say "No anomalies."
+C) **Top Features**: List top 5 features by usage, 1 line each.
+D) **One-liner Assessment**: "Product health: [good/concerning/needs attention] — [why in 1 sentence]"
 
-   === TREND COMPARISON ===
-
-   h) Day-over-day comparison (or week-over-week if Monday):
-      Run the same visitor/signup/core-event queries for the PREVIOUS equivalent period
-      to calculate % change. Example: if lookback is yesterday, also query day-before-yesterday.
-      If Monday (3-day lookback Fri-Sun), compare against the previous Fri-Sun.
-
-ANALYSIS REQUIRED — Don't just list numbers, provide insights:
-
-A) **Metric Trends**: Are visitors, sign-ups, and core events trending up or down? Calculate % change vs previous period.
-B) **Anomaly Detection**: Flag any metric that changed >20% day-over-day (or period-over-period). Is this expected based on recent feature releases?
-C) **Feature Adoption**: Which features are most used? Any new features showing traction or surprisingly low adoption?
-D) **Error Spikes**: Any new errors or significant increases in error rates? Correlate with recent deployments if possible.
-E) **Activation Funnel**: If data is available, how are users progressing from sign-up → first core action → repeat usage?
-F) **Power Users vs Casual**: What's the ratio of users with multiple actions vs one-time users?
-
-Return structured data AND insights, with clear trend indicators (↑ ↓ →).
+Return a concise summary, NOT raw query results. Target ~1KB output max.
 ```
 
 ### Phase 3: Assembly & Cross-Reference Synthesis (Orchestrator — After All Agents Complete)

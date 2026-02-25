@@ -82,7 +82,56 @@ The cross-referencing is the magic. It doesn't just pull data — it connects do
 
 ---
 
-### 2. Comprehensive Analysis (`/comprehensive-analysis`)
+### 2. Braindump (`/braindump`)
+
+Quick-capture skill for stream-of-consciousness thoughts. Accepts raw voice or text input, auto-classifies into domains (personal/professional/project), extracts themes and action items, and saves structured markdown with metadata.
+
+```
+Raw thoughts → /braindump → Structured capture with:
+                              • Domain classification
+                              • Theme extraction
+                              • Action items
+                              • Emotional context
+                              • Connections to existing work
+```
+
+**Key feature:** Braindumps feed directly into the daily brief's "Strategic Context" section. Your thinking from yesterday automatically surfaces in this morning's brief, connected to what the team is actually building.
+
+[Full documentation →](skills/braindump/README.md)
+
+---
+
+### 3. Meeting Transcript (`/meeting-transcript`)
+
+Process meeting recordings and notes into structured, actionable summaries. Runs 3 parallel agents to extract decisions, action items, team dynamics, and strategic context — while aggressively filtering noise (side chats, "can you hear me?", incomplete thoughts).
+
+```
+┌─────────────────────────────────────────┐
+│  /meeting-transcript                    │
+│                                         │
+│  [Agent 1] content-extractor            │
+│  ├── Decisions with rationale           │
+│  ├── Action items with owners           │
+│  └── Strategic themes                   │
+│                                         │
+│  [Agent 2] dynamics-analyst             │
+│  ├── Participation assessment           │
+│  ├── Decision-making quality            │
+│  └── Meeting effectiveness score        │
+│                                         │
+│  [Agent 3] context-enricher             │
+│  ├── Project context connections        │
+│  └── Competitive intel extraction       │
+└─────────────────────────────────────────┘
+```
+
+**Key feature:** Meeting action items are automatically tracked by the daily brief. If someone says "I'll fix the onboarding flow" in a meeting, the brief checks the next morning whether a PR or Linear issue exists — and flags it if nothing happened.
+
+[Full documentation →](skills/meeting-transcript/README.md)
+
+---
+
+### 4. Comprehensive Analysis (`/comprehensive-analysis`)
 
 A deep-dive analysis skill for when you need the full picture — weekly reviews, board prep, or strategic planning sessions. This one intentionally pulls **more data** and spends **more time** synthesizing.
 
@@ -188,42 +237,92 @@ The agents in these skills already follow this pattern — but if you customize 
 
 ---
 
+## The Full Flow
+
+These skills work together as a closed-loop system:
+
+```
+  ┌──────────────┐     ┌──────────────────┐     ┌──────────────────────┐
+  │  /braindump   │     │ /meeting-transcript│     │  GitHub / Linear /   │
+  │              │     │                  │     │  Slack / PostHog     │
+  │  Capture raw  │     │  Process meeting  │     │                      │
+  │  thoughts     │     │  into decisions + │     │  Your team's daily   │
+  │              │     │  action items     │     │  work across tools   │
+  └──────┬───────┘     └────────┬─────────┘     └──────────┬───────────┘
+         │                      │                           │
+         │    Saved as structured markdown                  │
+         │    with metadata & action items                  │
+         ▼                      ▼                           ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                        /daily-brief                                 │
+  │                                                                     │
+  │  Reads braindumps → "Strategic Context" section                     │
+  │  Reads meetings   → "Meeting Follow-Up Tracker" (tracks action      │
+  │                      items against actual GitHub/Linear activity)    │
+  │  Reads GitHub     → PRs, commits, review status                     │
+  │  Reads Linear     → Issues, cycles, initiatives                     │
+  │  Reads Slack      → Discussions, decisions                          │
+  │  Reads PostHog    → User metrics, error spikes                      │
+  │                                                                     │
+  │  Cross-references ALL sources → surfaces insights                   │
+  │  Writes BACK to Linear → two-way sync                              │
+  │  Publishes to HackMD → shareable team link                         │
+  │  Posts to Slack → team highlights                                   │
+  └─────────────────────────────────────────────────────────────────────┘
+         │
+         ▼ (weekly/ad-hoc)
+  ┌─────────────────────────────────────┐
+  │      /comprehensive-analysis        │
+  │                                     │
+  │  Deep 7-day analysis for weekly     │
+  │  reviews, board prep, or strategic  │
+  │  planning. Same sources, more depth.│
+  └─────────────────────────────────────┘
+```
+
+---
+
 ## Quick Start
 
-### 1. Install a skill
-
-Copy the skill file into your Claude Code commands directory:
+### Option A: Interactive Setup (Recommended)
 
 ```bash
-# Daily Brief
-cp skills/daily-brief/daily-brief.md ~/.claude/commands/daily-brief.md
+git clone https://github.com/huytieu/pm-skills.git
+cd pm-skills
+./setup.sh
+```
 
-# Comprehensive Analysis
+The setup script will:
+1. Ask where to install (project-level or global)
+2. Let you pick which skills to install
+3. Walk you through configuration (GitHub repo, issue prefix, Slack channel, etc.)
+4. Replace all `[CUSTOMIZE]` placeholders automatically
+5. Check prerequisites (gh CLI, Claude Code)
+6. Show available MCP integrations
+
+### Option B: Manual Install
+
+Copy skill files into your Claude Code commands directory:
+
+```bash
+# All skills
+cp skills/daily-brief/daily-brief.md ~/.claude/commands/daily-brief.md
+cp skills/braindump/braindump.md ~/.claude/commands/braindump.md
+cp skills/meeting-transcript/meeting-transcript.md ~/.claude/commands/meeting-transcript.md
 cp skills/comprehensive-analysis/comprehensive-analysis.md ~/.claude/commands/comprehensive-analysis.md
 ```
 
-Or for a project-specific install:
+Or for a project-specific install (`.claude/commands/` in your project root).
 
-```bash
-cp skills/daily-brief/daily-brief.md .claude/commands/daily-brief.md
-```
-
-### 2. Customize for your team
-
-Open the skill file and replace the placeholder values. See the `[CUSTOMIZE]` markers throughout the file, or read the [customization guide](CUSTOMIZATION.md) for a walkthrough.
-
-At minimum, you need to set:
-- Your GitHub repo (e.g., `your-org/your-repo`)
-- Your Linear/Jira issue prefix (e.g., `PROJ-123`)
-- Your Slack channel name
-- Your PostHog project/dashboard IDs (optional)
-- Your vault paths for meetings and braindumps
+Then find and replace all `[CUSTOMIZE]` markers. See [CUSTOMIZATION.md](CUSTOMIZATION.md).
 
 ### 3. Run it
 
 ```
-/daily-brief
-/comprehensive-analysis
+/daily-brief              — daily team intelligence brief (~3-4 min)
+/braindump                — capture raw thoughts
+/meeting-transcript       — process meeting notes
+/comprehensive-analysis   — deep weekly analysis (~8-12 min)
 ```
 
 ## Requirements
